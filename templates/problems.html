@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Problems{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Problems</h1>
+    <form method="GET" action="{{ url_for('problems') }}" class="filter-form">
+        <label for="status">Filter by status:</label>
+        <select name="status" id="status" onchange="this.form.submit()">
+            <option value="all" {% if filter_status == 'all' %}selected{% endif %}>All</option>
+            <option value="New" {% if filter_status == 'New' %}selected{% endif %}>New</option>
+            <option value="Resolved" {% if filter_status == 'Resolved' %}selected{% endif %}>Resolved</option>
+            <option value="In Progress" {% if filter_status == 'In Progress' %}selected{% endif %}>In Progress</option>
+        </select>
+
+        <label for="category">Filter by category:</label>
+        <select name="category" id="category" onchange="this.form.submit()">
+            <option value="all" {% if filter_category == 'all' %}selected{% endif %}>All</option>
+            <option value="VPN" {% if filter_category == 'VPN' %}selected{% endif %}>VPN</option>
+            <option value="Network" {% if filter_category == 'Network' %}selected{% endif %}>Network</option>
+            <option value="Software" {% if filter_category == 'Software' %}selected{% endif %}>Software</option>
+        </select>
+
+        <label for="priority">Filter by priority:</label>
+        <select name="priority" id="priority" onchange="this.form.submit()">
+            <option value="all" {% if filter_priority == 'all' %}selected{% endif %}>All</option>
+            <option value="High" {% if filter_priority == 'High' %}selected{% endif %}>High</option>
+            <option value="Medium" {% if filter_priority == 'Medium' %}selected{% endif %}>Medium</option>
+            <option value="Low" {% if filter_priority == 'Low' %}selected{% endif %}>Low</option>
+        </select>
+
+    </form>
+
+    <div class="problem-list">
+        {% for problem in problems.items %}
+        <div class="problem {% if problem.priority == 'High' %}red{% elif problem.priority == 'Medium' %}yellow{% else %}green{% endif %}">
+            <div class="problem-status {% if problem.status == 'New' %}status-new{% elif problem.status == 'Resolved' %}status-resolved{% endif %}">
+                {{ problem.status }}
+            </div>
+            <a href="{{ url_for('problem_details', problem_id=problem.id) }}">
+                <h2>{{ problem.title }}</h2>
+                <p>{{ problem.description }}</p>
+                <p>Category: {{ problem.category }}</p>
+                <p>Created at: {{ problem.created_at|datetimeformat }}</p>
+                <p>Priority: {{ problem.priority }}</p>
+                <p>Assigned to: {{ problem.assigned_user.username if problem.assigned_user else 'None' }}</p>
+                <p>Status: {{ problem.status }}</p>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if problems.pages > 1 %}
+    <div class="pagination">
+        {% if problems.has_prev %}
+            <a href="{{ url_for('problems', page=problems.prev_num, status=filter_status, category=filter_category, priority=filter_priority) }}">Previous</a>
+        {% endif %}
+        <span>Page {{ problems.page }} of {{ problems.pages }}</span>
+        {% if problems.has_next %}
+            <a href="{{ url_for('problems', page=problems.next_num, status=filter_status, category=filter_category, priority=filter_priority) }}">Next</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

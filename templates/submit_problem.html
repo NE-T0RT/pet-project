@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Submit a Problem{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Submit a Problem</h1>
+    <form method="POST" action="{{ url_for('submit_problem') }}" enctype="multipart/form-data" class="form-input">
+        <div class="input-group wide">
+            <label for="title">Title:</label>
+            <input type="text" id="title" name="title" placeholder="Title" required>
+        </div>
+        <div class="input-group wide">
+            <label for="description">Description:</label>
+            <textarea id="description" name="description" placeholder="Description" required></textarea>
+        </div>
+        <div class="form-row">
+            <div class="input-group">
+                <label for="priority">Priority:</label>
+                <select id="priority" name="priority" required>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                </select>
+            </div>
+            
+            <div class="input-group">
+                <label for="category">Category:</label>
+                <select id="category" name="category" required>
+                    <option value="">Not selected category</option>
+                    <option value="VPN">VPN</option>
+                    <option value="Software">Software</option>
+                    <option value="Network">Network</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label for="created_at">Creation Date and Time:</label>
+                <input type="datetime-local" id="created_at" name="created_at" max="{{ max_date }}">
+            </div>
+            <div class="input-group">
+                <label for="files">Attach files:</label>
+                <label for="attach-files" class="file-upload-label">
+                    <span class="file-icon">📎</span> Here
+                </label>
+                <input type="file" id="attach-files" name="files[]" multiple>
+                
+            </div>
+        </div>
+        <button type="submit">Submit</button>
+    </form>
+</div>
+{% endblock %}

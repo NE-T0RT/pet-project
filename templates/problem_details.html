@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Problem Details{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>{{ problem.title }}</h1>
+    <p>{{ problem.description }}</p>
+    <p>Category: {{ problem.category }}</p>
+    <p>Created at: {{ problem.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+    <p>Status: {{ problem.status }}</p>
+    <p>Assigned to: {{ problem.assigned_user.username if problem.assigned_user else 'None' }}</p>
+
+    <h2>Attached Files</h2>
+    <ul>
+        {% for file in problem.files %}
+        <li>
+            <a href="{{ url_for('download_file', filename=file.filename) }}">
+                {{ file.filename }}
+                <img src="{{ url_for('static', filename='images/download.svg') }}" alt="Download" width="20">
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <h2>Comments</h2>
+    <div class="comments-container">
+        {% for comment in comments %}
+        <div class="comment {% if comment.user.is_admin %}admin-comment{% else %}user-comment{% endif %}">
+            <span class="comment-author">
+                {{ comment.user.username }} - 
+            </span>
+            <span class="comment-content">
+                <em>{{ comment.content }}</em>
+            </span>
+            {% if comment.files %}
+            <ul class="comment-files">
+                {% for file in comment.files %}
+                <li>
+                    <a href="{{ url_for('download_comment_file', filename=file.filename) }}">
+                        {{ file.filename }}
+                        <img src="{{ url_for('static', filename='images/download.svg') }}" alt="Download" width="20">
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="comment-form">
+        <form method="POST" action="{{ url_for('comment_problem', problem_id=problem.id) }}" enctype="multipart/form-data" class="comment-form-container">
+            <div class="input-container">
+                <label for="attach-files" class="attach-icon">
+                    <img src="{{ url_for('static', filename='images/paperclip.svg') }}" alt="Attach Files" width="20">
+                </label>
+                <input type="file" id="attach-files" name="files" multiple style="display: none;">
+                <textarea name="content" id="content" rows="1" required placeholder="Write a comment..."></textarea>
+                <button type="submit" class="send-icon">
+                    <img src="{{ url_for('static', filename='images/send.svg') }}" alt="Send" width="20">
+                </button>
+            </div>
+        </form>
+    </div>       
+    
+
+    {% if current_user.is_authenticated %}
+        {% if current_user.is_admin %}
+            <div class="admin-actions">
+                <form method="POST" action="{{ url_for('delete_problem', problem_id=problem.id) }}">
+                    <button type="submit" onclick="return confirm('Are you sure you want to delete this problem?');">Delete Problem</button>
+                </form>
+            </div>
+
+            {% if not problem.assigned_user or problem.assigned_user.id != current_user.id %}
+            <div class="admin-actions">
+                <form method="POST" action="{{ url_for('assign_problem', problem_id=problem.id) }}">
+                    <button type="submit">Assign to Me</button>
+                </form>
+            </div>
+            {% endif %}
+
+            {% if problem.status == 'New' and (not problem.assigned_user or problem.assigned_user.id == current_user.id) %}
+            <div class="admin-actions">
+                <form method="POST" action="{{ url_for('resolve_problem', problem_id=problem.id) }}">
+                    <button type="submit">Resolve</button>
+                </form>
+            </div>
+            <div class="admin-actions">
+                <form method="POST" action="{{ url_for('set_in_progress', problem_id=problem.id) }}">
+                    <button type="submit">Set In Progress</button>
+                </form>
+            </div>
+            {% elif problem.status == 'Resolved' %}
+            <div class="admin-actions">
+                <form method="POST" action="{{ url_for('undo_resolution', problem_id=problem.id) }}">
+                    <button type="submit">Undo Resolution</button>
+                </form>
+            </div>
+            {% endif %}
+
+            {% if problem.status != 'Archived' %}
+            <div class="admin-actions">
+                <form method="POST" action="{{ url_for('archive_problem', problem_id=problem.id) }}">
+                    <button type="submit">Archive Problem</button>
+                </form>
+            </div>
+            {% endif %}
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

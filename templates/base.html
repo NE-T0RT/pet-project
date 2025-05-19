@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Default Title{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="{{ url_for('static', filename='scripts/theme-toggle.js') }}" defer></script>
+</head>
+<body>
+    <header>
+        <div class="navbar">
+            <a href="{{ url_for('home') }}">Home</a>
+            {% if current_user.is_authenticated %}
+                <a href="{{ url_for('submit_problem') }}">Submit Problem</a>
+                <a href="{{ url_for('problems') }}">Problems</a>
+                {% if current_user.is_admin %}
+                    <a href="{{ url_for('archive') }}">Archived Problems</a>
+                    <a href="{{ url_for('admin_users') }}">Users</a>
+                {% endif %}
+                <a href="{{ url_for('logout') }}">Logout</a>
+            {% else %}
+                <a href="{{ url_for('login') }}">Login</a>
+            {% endif %}
+            <button id="theme-toggle" class="theme-toggle">
+                <img id="theme-icon" src="{{ url_for('static', filename='images/sun.png') }}" alt="Toggle Theme" />
+            </button>
+        </div>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <p>Footer Content</p>
+    </footer>
+</body>
+</html>
