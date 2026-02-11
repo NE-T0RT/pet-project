@@ -1,14 +1,21 @@
-from flask import Flask, render_template, redirect, url_for, request, flash, abort
+from flask import Flask, render_template, redirect, url_for, request, flash, abort, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_socketio import SocketIO, emit
 from datetime import datetime
 from werkzeug.utils import secure_filename
-from flask import send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
+from markupsafe import Markup
+from PIL import Image
 
 import os
 import logging
+import sys
+
+
+if getattr(sys, 'frozen', False):
+    os.chdir(os.path.dirname(sys.executable))
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret_key'
@@ -16,7 +23,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
 app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-
+socketio = SocketIO(app)
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 login_manager = LoginManager(app)
@@ -48,9 +55,10 @@ class User(db.Model, UserMixin):
     password = db.Column(db.String(150), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
 
-    created_problems = db.relationship('Problem', foreign_keys='Problem.user_id', backref='creator', lazy=True)
+    created_problems = db.relationship('Problem', foreign_keys='Problem.user_id', backref='creator', lazy=True, cascade="all, delete-orphan")
     assigned_problems = db.relationship('Problem', foreign_keys='Problem.assigned_to', backref='assignee', lazy=True, overlaps='assignee')
     comments = db.relationship('Comment', back_populates='user', lazy=True)
+    
 
 class Problem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -107,7 +115,6 @@ def datetimeformat(value, format='%Y-%m-%d %H:%M'):
 def home():
     return render_template('home.html')
 
-import logging
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -138,47 +145,96 @@ def logout():
 @app.route('/submit_problem', methods=['GET', 'POST'])
 @login_required
 def submit_problem():
+    file_errors = []
+    file_success = []
+    old_data = {}
+
     if request.method == 'POST':
-        try:
-            title = request.form.get('title')
-            description = request.form.get('description')
-            priority = request.form.get('priority')
-            category = request.form.get('category')
-            created_at_str = request.form.get('created_at')
-            files = request.files.getlist('files')
+        title = request.form.get('title')
+        description = request.form.get('description')
+        priority = request.form.get('priority')
+        category = request.form.get('category')
+        created_at_str = request.form.get('created_at')
+        files = request.files.getlist('files')
 
-            if not title or not description or not priority or not category:
-                raise ValueError("Title, Description, Priority, and Category are required")
+        old_data = {
+            'title': title,
+            'description': description,
+            'priority': priority,
+            'category': category,
+            'created_at': created_at_str,
+        }
 
-            if not created_at_str:
-                created_at = datetime.utcnow()
-            else:
-                created_at = datetime.strptime(created_at_str, '%Y-%m-%dT%H:%M')
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
-            new_problem = Problem(
-                title=title,
-                description=description,
-                priority=priority,
-                category=category,
-                created_at=created_at,
-                user_id=current_user.id
-            )
-            db.session.add(new_problem)
-            db.session.commit()
+        for file in files:
+            if file and file.filename:
+                fname = file.filename
+                if not allowed_file(fname):
+                    file_errors.append(f"Nie dostępny typ pliku: <code>{fname}</code>")
+                    continue
+                file.seek(0, 2)
+                filesize = file.tell()
+                file.seek(0)
+                if filesize > MAX_FILE_SIZE:
+                    file_errors.append(f"Za duży plik: <code>{fname}</code>")
+                    continue
+                ext = fname.rsplit('.', 1)[1].lower()
+                if ext in {'png', 'jpg', 'jpeg', 'gif'}:
+                    try:
+                        img = Image.open(file)
+                        img.verify()
+                        file.seek(0)
+                    except Exception:
+                        file_errors.append(f"Uszkodzony plik: <code>{fname}</code>")
+                        continue
+                file_success.append(fname)
 
-            for file in files:
+        if file_errors:
+            from markupsafe import Markup
+            for err in file_errors:
+                flash(Markup(f"<strong>Błąd:</strong> {err}"), 'danger')
+            if file_success:
+                for ok in file_success:
+                    flash(Markup(f"Plik <code>{ok}</code> została zweryfikowana, ale aplikacja nie została utworzona."), 'info')
+            max_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M')
+            return render_template('submit_problem.html', max_date=max_date, **old_data)
+
+        if not title or not description or not priority or not category:
+            flash("Wszystkie pola są wymagane!", 'danger')
+            max_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M')
+            return render_template('submit_problem.html', max_date=max_date, **old_data)
+
+        created_at = datetime.utcnow() if not created_at_str else datetime.strptime(created_at_str, '%Y-%m-%dT%H:%M')
+        new_problem = Problem(
+            title=title,
+            description=description,
+            priority=priority,
+            category=category,
+            created_at=created_at,
+            user_id=current_user.id
+        )
+        db.session.add(new_problem)
+        db.session.commit()
+
+        # Save files
+        for file in files:
+            fname = file.filename
+            if fname and allowed_file(fname):
                 filename, filepath = save_file(file)
                 if filename:
                     new_file = File(filename=filename, filepath=filepath, problem_id=new_problem.id)
                     db.session.add(new_file)
-            db.session.commit()
+        db.session.commit()
 
-            return redirect(url_for('problems'))
-        except Exception as e:
-            flash(f'Error: {str(e)}', 'danger')
+        flash("Aplikacja została pomyślnie utworzona. Wszystkie pliki zostały przesłane.", "success")
+        return redirect(url_for('problems'))
 
     max_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M')
     return render_template('submit_problem.html', max_date=max_date)
+
+
+
 
 @app.route('/problems')
 @login_required
@@ -199,8 +255,9 @@ def problems():
     if priority != 'all':
         query = query.filter(Problem.priority == priority)
 
-    problems = query.order_by(Problem.created_at.desc()).paginate(page=page, per_page=50)
-
+    problems = query.order_by(Problem.created_at.desc()).paginate(page=page, per_page=51)
+    if page > problems.pages and problems.pages > 0:
+        return redirect(url_for('problems', page=problems.pages))
     return render_template('problems.html', problems=problems, filter_status=status, filter_category=category, filter_priority=priority)
 
 
@@ -247,24 +304,33 @@ def undo_resolution(problem_id):
     if problem.status != 'Resolved':
         flash('Problem is not resolved yet.', 'danger')
     else:
-        problem.status = 'Open'
+        problem.status = 'In Progress'
         db.session.commit()
-        flash('Resolution undone', 'success')
+        flash('Status reverted to In Progress', 'success')
     return redirect(url_for('problem_details', problem_id=problem.id))
 
 @app.route('/problem/<int:problem_id>/comment', methods=['POST'])
 @login_required
 def comment_problem(problem_id):
+    problem = Problem.query.get_or_404(problem_id)
+    if problem.is_archived:
+        flash('Zarchiwizowanych zgłoszeń nie można komentować.', 'danger')
+        return redirect(url_for('problem_details', problem_id=problem.id))
+ 
     content = request.form.get('content')
     files = request.files.getlist('files')
 
-    # Добавление комментария
     if content:
         new_comment = Comment(content=content, user_id=current_user.id, problem_id=problem_id)
         db.session.add(new_comment)
         db.session.commit()
+        socketio.emit('new_comment', {
+            'problem_id': problem_id,
+            'content': content,
+            'author': current_user.username,
+            'is_admin': current_user.is_admin
+        })
 
-        # Сохранение файлов
         for file in files:
             if file and allowed_file(file.filename):
                 filename, filepath = save_file(file)
@@ -289,8 +355,11 @@ def download_comment_file(filename):
 @login_required
 def problem_details(problem_id):
     problem = Problem.query.get_or_404(problem_id)
+    if not current_user.is_admin and problem.user_id != current_user.id:
+        abort(403)
     comments = Comment.query.filter_by(problem_id=problem_id).all()
     return render_template('problem_details.html', problem=problem, comments=comments)
+
 
 @app.route('/problem/<int:problem_id>/assign', methods=['POST'])
 @login_required
@@ -325,6 +394,7 @@ def set_in_progress(problem_id):
     return redirect(url_for('problem_details', problem_id=problem.id))
 
 
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -332,7 +402,7 @@ def upload_file():
     
     files = request.files.getlist('file')
     if len(files) > 5:
-        return "Вы можете загрузить не более 5 файлов", 400
+        return "Można przesłać maksymalnie 5 plików", 400
     
     for file in files:
         if file.filename == '':
@@ -362,7 +432,7 @@ def admin_users():
 @login_required
 def create_user():
     if not current_user.is_admin:
-        abort(403)  # Dostęp tylko dla administratorów
+        abort(403) 
 
     if request.method == 'POST':
         username = request.form.get('username')
@@ -423,4 +493,4 @@ def archive_problem(problem_id):
     return redirect(url_for('problems'))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    socketio.run(app, debug=True)
